@@ -7,6 +7,8 @@ from datetime import datetime
 from collections import Counter
 import hashlib
 import requests  # ВАЖНО: добавляем requests
+import threading  # ВАЖНО: для health check сервера
+from http.server import HTTPServer, BaseHTTPRequestHandler  # ВАЖНО: для порта
 
 # ================ ТВОИ ДАННЫЕ ================
 # 🔥 ТОКЕН УЖЕ ВСТРОЕН! НИЧЕГО ДОБАВЛЯТЬ НЕ НАДО!
@@ -18,6 +20,39 @@ ALLOWED_USERS = [
     1856968535, 7969744570, 5338412256, 1884395691, 854516498,
     7757107782, 8362622503, 7041457550, 8169565031, 5544698718
 ]
+# =============================================
+
+# ============== HEALTH CHECK СЕРВЕР ==============
+# ЭТО РЕШАЕТ ПРОБЛЕМУ "ОТКРЫТЫХ ПОРТОВ НЕ ОБНАРУЖЕНО"
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(b'OK')
+    
+    def log_message(self, format, *args):
+        pass  # Отключаем логирование запросов
+
+def run_health_server():
+    """Запускает HTTP сервер на порту 10000 для Render"""
+    port = 10000
+    while True:
+        try:
+            server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+            print(f"✅ HEALTH CHECK СЕРВЕР ЗАПУЩЕН НА ПОРТУ {port}")
+            print(f"✅ Render теперь видит открытый порт")
+            server.serve_forever()
+        except Exception as e:
+            print(f"⚠️ Ошибка health check сервера: {e}")
+            print(f"🔄 Перезапуск health check сервера через 3 секунды...")
+            time.sleep(3)
+            continue
+
+# Запускаем health check сервер в отдельном потоке
+health_thread = threading.Thread(target=run_health_server, daemon=True)
+health_thread.start()
+print("✅ HEALTH CHECK ПОТОК ЗАПУЩЕН")
 # =============================================
 
 # ============== УБИВАЕМ 409 НАВСЕГДА ==============
@@ -751,6 +786,8 @@ if __name__ == "__main__":
     print("=" * 50)
     print("✅ Токен ВСТРОЕН в код")
     print("✅ 409 УБИТА - сброс вебхука ДО запуска")
+    print("✅ HEALTH CHECK СЕРВЕР НА ПОРТУ 10000")
+    print("✅ Render видит открытый порт - не убьёт бота")
     print("=" * 50)
     
     # Бесконечный перезапуск с защитой от 409
