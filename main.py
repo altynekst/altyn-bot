@@ -8,8 +8,8 @@ from collections import Counter
 import hashlib
 
 # ================ ТВОИ ДАННЫЕ ================
-# ⚠️ ВАЖНО! Токен будет браться из переменных окружения!
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
+# 🔥 ТОКЕН УЖЕ ВСТРОЕН! НИЧЕГО ДОБАВЛЯТЬ НЕ НАДО!
+BOT_TOKEN = "8147946869:AAF7Xw4XXc0OZUZU3Zir-uhXDEwBDSYMlw8"
 ADMIN_ID = 1856968535
 
 # СПИСОК РАЗРЕШЁННЫХ ПОЛЬЗОВАТЕЛЕЙ
@@ -19,32 +19,15 @@ ALLOWED_USERS = [
 ]
 # =============================================
 
-# Проверка наличия токена
-if not BOT_TOKEN:
-    print("❌ КРИТИЧЕСКАЯ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
-    print("📌 На Render.com добавь переменную BOT_TOKEN в Environment Variables")
-    exit(1)
-
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# ФАЙЛЫ ДЛЯ ХРАНЕНИЯ (временная директория для Render)
+# ФАЙЛЫ ДЛЯ ХРАНЕНИЯ (используем /tmp для Render)
 DATA_DIR = '/tmp/bot_data' if os.path.exists('/tmp') else '.'
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR, exist_ok=True)
+
 DATA_FILE = os.path.join(DATA_DIR, "answers.json")
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
-
-# Создаем директорию, если её нет
-if not os.path.exists(DATA_DIR):
-    try:
-        os.makedirs(DATA_DIR)
-    except:
-        DATA_DIR = '.'
-        DATA_FILE = "answers.json"
-        USERS_FILE = "users.json"
-
-# КЭШИ И ВРЕМЕННЫЕ ДАННЫЕ
-SUBJECTS_CACHE = {}
-user_data = {}
-pending_add_user = {}
 
 # ============== РАБОТА С ФАЙЛАМИ ==============
 def safe_load_json(filename, default):
@@ -52,8 +35,7 @@ def safe_load_json(filename, default):
         if os.path.exists(filename) and os.path.getsize(filename) > 0:
             with open(filename, "r", encoding="utf-8") as f:
                 return json.load(f)
-    except Exception as e:
-        print(f"Ошибка загрузки {filename}: {e}")
+    except:
         if os.path.exists(filename):
             try:
                 os.rename(filename, f"{filename}.backup_{int(time.time())}")
@@ -68,8 +50,7 @@ def safe_save_json(filename, data):
             json.dump(data, f, ensure_ascii=False, indent=2)
         os.replace(temp_file, filename)
         return True
-    except Exception as e:
-        print(f"Ошибка сохранения {filename}: {e}")
+    except:
         try:
             os.remove(temp_file)
         except:
@@ -83,8 +64,7 @@ def save_answers(answers):
     return safe_save_json(DATA_FILE, answers)
 
 def load_users():
-    data = safe_load_json(USERS_FILE, {"allowed": ALLOWED_USERS.copy()})
-    return data
+    return safe_load_json(USERS_FILE, {"allowed": ALLOWED_USERS.copy()})
 
 def save_users(users_data):
     return safe_save_json(USERS_FILE, users_data)
@@ -118,6 +98,8 @@ def delete_answer(answer_id):
     save_answers(answers)
 
 # ============== КОРОТКИЙ ID ДЛЯ ПРЕДМЕТОВ ==============
+SUBJECTS_CACHE = {}
+
 def get_subject_short_id(subject):
     if subject in SUBJECTS_CACHE:
         return SUBJECTS_CACHE[subject]
@@ -144,15 +126,13 @@ def is_allowed(user_id):
 def safe_send_message(chat_id, text, parse_mode=None, reply_markup=None):
     try:
         return bot.send_message(chat_id, text, parse_mode=parse_mode, reply_markup=reply_markup)
-    except Exception as e:
-        print(f"Ошибка отправки: {e}")
+    except:
         return None
 
 def safe_send_photo(chat_id, photo, caption=None, parse_mode=None):
     try:
         return bot.send_photo(chat_id, photo, caption=caption, parse_mode=parse_mode)
-    except Exception as e:
-        print(f"Ошибка отправки фото: {e}")
+    except:
         return None
 
 # ============== КОМАНДА СТАРТ ==============
@@ -227,6 +207,8 @@ def get_subject(message):
         "Markdown"
     )
     bot.register_next_step_handler(message, get_photos)
+
+user_data = {}
 
 def get_photos(message):
     user_id = message.from_user.id
@@ -453,7 +435,6 @@ def delete_answer_command(message):
         answer_id = int(message.text.replace('/del_', ''))
         delete_answer(answer_id)
         safe_send_message(message.chat.id, f"✅ Ответ #{answer_id} удалён")
-        
     except Exception as e:
         safe_send_message(message.chat.id, f"❌ Ошибка: {str(e)[:50]}")
 
@@ -749,22 +730,23 @@ def fallback(message):
 # ============== ЗАПУСК ==============
 if __name__ == "__main__":
     print("=" * 50)
-    print("🚀 БОТ ДЛЯ ОТВЕТОВ ЗАПУЩЕН НА ХОСТИНГЕ!")
+    print("🚀 БОТ ДЛЯ ОТВЕТОВ ЗАПУЩЕН!")
     print(f"👑 Админ: {ADMIN_ID}")
     print(f"📁 Данные: {DATA_FILE}")
     print("=" * 50)
+    print("✅ Токен ВСТРОЕН в код")
+    print("✅ На Render НИЧЕГО добавлять не надо!")
+    print("=" * 50)
     
-    # Удаляем вебхук при старте
+    # Удаляем вебхук
     try:
         bot.remove_webhook()
-        print("✅ Вебхук удалён")
-    except Exception as e:
-        print(f"⚠️ Ошибка удаления вебхука: {e}")
+    except:
+        pass
     
-    # Бесконечный перезапуск при ошибках (ВАЖНО ДЛЯ ХОСТИНГА!)
+    # Бесконечный перезапуск
     while True:
         try:
-            print("🟢 Бот начал polling...")
             bot.polling(non_stop=True, interval=0, timeout=20)
         except Exception as e:
             print(f"❌ Ошибка: {e}")
