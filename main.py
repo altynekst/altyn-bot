@@ -6,12 +6,11 @@ import time
 from datetime import datetime
 from collections import Counter
 import hashlib
-import requests  # ВАЖНО: добавляем requests
-import threading  # ВАЖНО: для health check сервера
-from http.server import HTTPServer, BaseHTTPRequestHandler  # ВАЖНО: для порта
+import requests
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # ================ ТВОИ ДАННЫЕ ================
-# 🔥 ТОКЕН УЖЕ ВСТРОЕН! НИЧЕГО ДОБАВЛЯТЬ НЕ НАДО!
 BOT_TOKEN = "8147946869:AAF7Xw4XXc0OZUZU3Zir-uhXDEwBDSYMlw8"
 ADMIN_ID = 1856968535
 
@@ -23,7 +22,6 @@ ALLOWED_USERS = [
 # =============================================
 
 # ============== HEALTH CHECK СЕРВЕР ==============
-# ЭТО РЕШАЕТ ПРОБЛЕМУ "ОТКРЫТЫХ ПОРТОВ НЕ ОБНАРУЖЕНО"
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -32,33 +30,28 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b'OK')
     
     def log_message(self, format, *args):
-        pass  # Отключаем логирование запросов
+        pass
 
 def run_health_server():
-    """Запускает HTTP сервер на порту 10000 для Render"""
     port = 10000
     while True:
         try:
             server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
             print(f"✅ HEALTH CHECK СЕРВЕР ЗАПУЩЕН НА ПОРТУ {port}")
-            print(f"✅ Render теперь видит открытый порт")
             server.serve_forever()
         except Exception as e:
             print(f"⚠️ Ошибка health check сервера: {e}")
-            print(f"🔄 Перезапуск health check сервера через 3 секунды...")
             time.sleep(3)
             continue
 
-# Запускаем health check сервер в отдельном потоке
 health_thread = threading.Thread(target=run_health_server, daemon=True)
 health_thread.start()
 print("✅ HEALTH CHECK ПОТОК ЗАПУЩЕН")
 # =============================================
 
-# ============== УБИВАЕМ 409 НАВСЕГДА ==============
+# ============== УБИВАЕМ 409 ==============
 print("🔄 ЖЁСТКИЙ СБРОС ПОДКЛЮЧЕНИЙ К TELEGRAM...")
 
-# Метод 1: deleteWebhook с drop_pending_updates (100% гарантия)
 webhook_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true"
 try:
     response = requests.get(webhook_url, timeout=10)
@@ -66,7 +59,6 @@ try:
 except Exception as e:
     print(f"⚠️ Ошибка сброса вебхука: {e}")
 
-# Метод 2: getUpdates с offset=-1 (принудительно завершаем polling)
 get_updates_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset=-1&timeout=1"
 try:
     requests.get(get_updates_url, timeout=5)
@@ -74,14 +66,13 @@ try:
 except:
     pass
 
-# Даём Telegram время обработать запросы
 time.sleep(2)
 print("✅ СБРОС ВЫПОЛНЕН, ЗАПУСКАЕМ БОТА...")
 # =============================================
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# ФАЙЛЫ ДЛЯ ХРАНЕНИЯ (используем /tmp для Render)
+# ФАЙЛЫ ДЛЯ ХРАНЕНИЯ
 DATA_DIR = '/tmp/bot_data' if os.path.exists('/tmp') else '.'
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -208,7 +199,6 @@ def start(message):
     buttons = [
         types.KeyboardButton("📤 ПРИСЛАТЬ ОТВЕТЫ"),
         types.KeyboardButton("📚 ВСЕ ОТВЕТЫ"),
-        types.KeyboardButton("🔍 ПОИСК"),
         types.KeyboardButton("📊 СТАТИСТИКА")
     ]
     markup.add(*buttons)
@@ -347,6 +337,62 @@ def show_all_answers(message):
         markup
     )
 
+# ============== ПОКАЗ ОТВЕТОВ ==============
+@bot.callback_query_handler(func=lambda call: call.data.startswith("s_"))
+def show_subject_answers(call):
+    user_id = call.from_user.id
+    
+    if not is_allowed(user_id):
+        bot.answer_callback_query(call.id, "❌ Нет доступа")
+        return
+    
+    short_id = call.data[2:]
+    subject = get_subject_by_short_id(short_id)
+    
+    if not subject:
+        bot.answer_callback_query(call.id, "❌ Не найдено")
+        return
+    
+    answers = load_answers()
+    subject_answers = [a for a in answers if a['subject'] == subject]
+    
+    bot.answer_callback_query(call.id)
+    
+    safe_send_message(
+        call.message.chat.id,
+        f"📚 *{subject[:50]}*\n└ Ответов: {len(subject_answers)}",
+        "Markdown"
+    )
+    
+    for ans in subject_answers[-5:]:
+        caption = f"📚 *{ans['subject'][:30]}*\n🆔 #{ans['id']}\n📅 {ans['date']}"
+        
+        # ТОЛЬКО АДМИН видит ID отправителя
+        if is_admin(user_id):
+            caption += f"\n🗑 /del_{ans['id']}"
+        
+        if 'photos' in ans:
+            safe_send_photo(call.message.chat.id, ans['photos'][0], caption, "Markdown")
+        else:
+            safe_send_photo(call.message.chat.id, ans['file_id'], caption, "Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data == "all_subjects")
+def all_subjects(call):
+    if not is_allowed(call.from_user.id):
+        return
+    
+    answers = load_answers()
+    subjects = {}
+    for ans in answers:
+        subjects[ans['subject']] = subjects.get(ans['subject'], 0) + 1
+    
+    text = "📚 *ВСЕ ПРЕДМЕТЫ:*\n\n"
+    for subject, count in sorted(subjects.items(), key=lambda x: x[1], reverse=True)[:50]:
+        text += f"└ {subject[:50]} — {count}\n"
+    
+    safe_send_message(call.message.chat.id, text[:4000], "Markdown")
+    bot.answer_callback_query(call.id)
+
 # ============== СТАТИСТИКА ==============
 @bot.message_handler(func=lambda m: m.text == "📊 СТАТИСТИКА")
 def my_stats(message):
@@ -378,109 +424,6 @@ def my_stats(message):
     )
     
     safe_send_message(message.chat.id, stats_text, "Markdown")
-
-# ============== ПОИСК ==============
-@bot.message_handler(func=lambda m: m.text == "🔍 ПОИСК")
-def search_prompt(message):
-    user_id = message.from_user.id
-    
-    if not is_allowed(user_id):
-        return
-    
-    safe_send_message(
-        message.chat.id,
-        "🔍 *Введи предмет для поиска:*",
-        "Markdown"
-    )
-    bot.register_next_step_handler(message, search_subject)
-
-def search_subject(message):
-    query = message.text.strip().lower()
-    
-    if len(query) < 3:
-        safe_send_message(message.chat.id, "❌ *Минимум 3 символа*", "Markdown")
-        return
-    
-    answers = load_answers()
-    found = [a for a in answers if query in a['subject'].lower()]
-    
-    if not found:
-        safe_send_message(message.chat.id, f"❌ Ничего не найдено", "Markdown")
-        return
-    
-    subjects = {}
-    for ans in found:
-        subjects[ans['subject']] = subjects.get(ans['subject'], 0) + 1
-    
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    for subject, count in list(subjects.items())[:10]:
-        short_id = get_subject_short_id(subject)
-        markup.add(types.InlineKeyboardButton(
-            f"📖 {subject[:20]} ({count})",
-            callback_data=f"s_{short_id}"
-        ))
-    
-    safe_send_message(
-        message.chat.id,
-        f"🔍 *Найдено:* {len(found)} ответов",
-        "Markdown",
-        markup
-    )
-
-# ============== ПОКАЗ ОТВЕТОВ ==============
-@bot.callback_query_handler(func=lambda call: call.data.startswith("s_"))
-def show_subject_answers(call):
-    user_id = call.from_user.id
-    
-    if not is_allowed(user_id):
-        bot.answer_callback_query(call.id, "❌ Нет доступа")
-        return
-    
-    short_id = call.data[2:]
-    subject = get_subject_by_short_id(short_id)
-    
-    if not subject:
-        bot.answer_callback_query(call.id, "❌ Не найдено")
-        return
-    
-    answers = load_answers()
-    subject_answers = [a for a in answers if a['subject'] == subject]
-    
-    bot.answer_callback_query(call.id)
-    
-    safe_send_message(
-        call.message.chat.id,
-        f"📚 *{subject[:50]}*\n└ Ответов: {len(subject_answers)}",
-        "Markdown"
-    )
-    
-    for ans in subject_answers[-5:]:
-        caption = f"📚 *{ans['subject'][:30]}*\n🆔 #{ans['id']}\n📅 {ans['date']}"
-        
-        if is_admin(user_id):
-            caption += f"\n🗑 /del_{ans['id']}"
-        
-        if 'photos' in ans:
-            safe_send_photo(call.message.chat.id, ans['photos'][0], caption, "Markdown")
-        else:
-            safe_send_photo(call.message.chat.id, ans['file_id'], caption, "Markdown")
-
-@bot.callback_query_handler(func=lambda call: call.data == "all_subjects")
-def all_subjects(call):
-    if not is_allowed(call.from_user.id):
-        return
-    
-    answers = load_answers()
-    subjects = {}
-    for ans in answers:
-        subjects[ans['subject']] = subjects.get(ans['subject'], 0) + 1
-    
-    text = "📚 *ВСЕ ПРЕДМЕТЫ:*\n\n"
-    for subject, count in sorted(subjects.items(), key=lambda x: x[1], reverse=True)[:50]:
-        text += f"└ {subject[:50]} — {count}\n"
-    
-    safe_send_message(call.message.chat.id, text[:4000], "Markdown")
-    bot.answer_callback_query(call.id)
 
 # ============== УДАЛЕНИЕ ОТВЕТОВ (ТОЛЬКО АДМИН) ==============
 @bot.message_handler(regexp=r'^/del_\d+$')
@@ -631,7 +574,6 @@ def admin_callback_handler(call):
             save_users(users_data)
             bot.answer_callback_query(call.id, f"✅ ID {remove_id} удалён!", show_alert=True)
             
-            # Обновляем список
             markup = types.InlineKeyboardMarkup(row_width=1)
             for uid in allowed_users[:10]:
                 if uid != ADMIN_ID:
@@ -787,13 +729,12 @@ if __name__ == "__main__":
     print("✅ Токен ВСТРОЕН в код")
     print("✅ 409 УБИТА - сброс вебхука ДО запуска")
     print("✅ HEALTH CHECK СЕРВЕР НА ПОРТУ 10000")
-    print("✅ Render видит открытый порт - не убьёт бота")
+    print("✅ КНОПКА ПОИСК УБРАНА")
+    print("✅ АВТОРЫ ОТВЕТОВ НЕ ПОКАЗЫВАЮТСЯ")
     print("=" * 50)
     
-    # Бесконечный перезапуск с защитой от 409
     while True:
         try:
-            # Перед каждым перезапуском сбрасываем вебхук
             try:
                 requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
                 time.sleep(1)
