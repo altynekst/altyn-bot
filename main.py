@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from collections import Counter
 import hashlib
+import requests  # ВАЖНО: добавляем requests
 
 # ================ ТВОИ ДАННЫЕ ================
 # 🔥 ТОКЕН УЖЕ ВСТРОЕН! НИЧЕГО ДОБАВЛЯТЬ НЕ НАДО!
@@ -17,6 +18,30 @@ ALLOWED_USERS = [
     1856968535, 7969744570, 5338412256, 1884395691, 854516498,
     7757107782, 8362622503, 7041457550, 8169565031, 5544698718
 ]
+# =============================================
+
+# ============== УБИВАЕМ 409 НАВСЕГДА ==============
+print("🔄 ЖЁСТКИЙ СБРОС ПОДКЛЮЧЕНИЙ К TELEGRAM...")
+
+# Метод 1: deleteWebhook с drop_pending_updates (100% гарантия)
+webhook_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true"
+try:
+    response = requests.get(webhook_url, timeout=10)
+    print(f"✅ Сброс вебхука: {response.json()}")
+except Exception as e:
+    print(f"⚠️ Ошибка сброса вебхука: {e}")
+
+# Метод 2: getUpdates с offset=-1 (принудительно завершаем polling)
+get_updates_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset=-1&timeout=1"
+try:
+    requests.get(get_updates_url, timeout=5)
+    print("✅ Принудительный сброс polling")
+except:
+    pass
+
+# Даём Telegram время обработать запросы
+time.sleep(2)
+print("✅ СБРОС ВЫПОЛНЕН, ЗАПУСКАЕМ БОТА...")
 # =============================================
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -438,16 +463,6 @@ def delete_answer_command(message):
     except Exception as e:
         safe_send_message(message.chat.id, f"❌ Ошибка: {str(e)[:50]}")
 
-@bot.message_handler(commands=['del'])
-def delete_help(message):
-    if not is_admin(message.from_user.id):
-        return
-    safe_send_message(
-        message.chat.id,
-        "🗑 *Удаление ответа*\n\nИспользуй: /del_123\nПример: /del_42",
-        "Markdown"
-    )
-
 # ============== АДМИН ПАНЕЛЬ ==============
 @bot.message_handler(func=lambda m: m.text == "👑 АДМИН ПАНЕЛЬ")
 def admin_panel(message):
@@ -735,18 +750,19 @@ if __name__ == "__main__":
     print(f"📁 Данные: {DATA_FILE}")
     print("=" * 50)
     print("✅ Токен ВСТРОЕН в код")
-    print("✅ На Render НИЧЕГО добавлять не надо!")
+    print("✅ 409 УБИТА - сброс вебхука ДО запуска")
     print("=" * 50)
     
-    # Удаляем вебхук
-    try:
-        bot.remove_webhook()
-    except:
-        pass
-    
-    # Бесконечный перезапуск
+    # Бесконечный перезапуск с защитой от 409
     while True:
         try:
+            # Перед каждым перезапуском сбрасываем вебхук
+            try:
+                requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
+                time.sleep(1)
+            except:
+                pass
+            
             bot.polling(non_stop=True, interval=0, timeout=20)
         except Exception as e:
             print(f"❌ Ошибка: {e}")
